@@ -8,23 +8,18 @@ class Planner:
     Implements an optimization problem to find the next surfaces to use
 
     The problem is a LP with these variables for each phase:
-    [ com_x, com_y, com_z_1, com_z_2, p_i_x, p_i_y, p_i_z, {a_i}                                ]
-    [ 1    , 1    , 1      , 1      , 1    , 1    , 1    , 0 if n_surfaces == 1, else n_surfaces]
+    [ {p_i_x, p_i_y, p_i_z}, {a_i}                                ]
+    [ {3 * nb_moving_feet }, 0 if n_surfaces == 1, else n_surfaces]
 
     Under the following constraints :
-    - fixed_foot_com: Ensures the COM is 'above' the fixed feet
     - foot_relative_distance: Ensures the moving feet is close enough to the other feet
     - surface: Each foot belongs to one surface
     - slack_positivity: The slack variables are positive
-    - com_weighted_equality: Fix the horizontal position of the CoM at the barycenter of the contact points (fixed feet)
+    - slack_equality: The slack variables are positive
     """
 
     def __init__(self):
-        self.default_n_equality_constraints = 2
-
-        self.cost_dict = {"final_com": self.end_com_cost,
-                          "effector_positions": self.end_effectors_position_cost,
-                          "coms": self.com_cost,
+        self.cost_dict = {"effector_positions": self.end_effectors_position_cost,
                           "posture": self.posture_cost,
                           "step_size": self.step_size_cost}
 
@@ -33,7 +28,7 @@ class Planner:
         @param phase phase concerned
         @return the number of non slack variables in phase
         """
-        return 4 + 3 * len(phase.moving)
+        return 3 * len(phase.moving)
 
     def _expression_matrix(self, size, _default_n_variables, j):
         """
@@ -45,33 +40,6 @@ class Planner:
         """
         M = np.zeros((size, _default_n_variables))
         M[:, j:j + size] = np.identity(size)
-        return M
-
-    def com_xy(self, phase):
-        """
-        Generate a selection matrix for the com x and y components
-        @param phase phase data
-        @return a (2, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(2, self._default_n_variables(phase), 0)
-
-    def com_1(self, phase):
-        """
-        Generate a selection matrix for the com_1
-        @param phase phase data
-        @return a (3, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(3, self._default_n_variables(phase), 0)
-
-    def com_2(self, phase):
-        """
-        Generate a selection matrix for the com_2
-        @param phase phase data
-        @return a (3, phase number of variables (without slacks)) matrix 
-        """
-        M = self._expression_matrix(3, self._default_n_variables(phase), 0)
-        M[2, 2] = 0
-        M[2, 3] = 1
         return M
 
     def foot(self, phase, foot=None, id=None):
@@ -86,7 +54,7 @@ class Planner:
             id = np.argmax(phase.moving == foot)
         elif id is None:
             print("Error in foot selection matrix: you must specify either foot or id")
-        return self._expression_matrix(3, self._default_n_variables(phase), 4 + 3 * id)
+        return self._expression_matrix(3, self._default_n_variables(phase), 3 * id)
 
     def foot_xy(self, phase, foot=None, id=None):
         """
@@ -100,7 +68,7 @@ class Planner:
             id = np.argmax(phase.moving == foot)
         elif id is None:
             print("Error in foot selection matrix: you must specify either foot or id")
-        return self._expression_matrix(2, self._default_n_variables(phase), 4 + 3 * id)
+        return self._expression_matrix(2, self._default_n_variables(phase), 3 * id)
 
     def _slack_selection_vector(self):
         """
@@ -169,15 +137,10 @@ class Planner:
         @param phase concerned phase
         """
         n_ineq = 0
-        # COM kinematic constraints
-        # for _, (K, _) in enumerate(phase.K):
-        #     n_ineq += K.shape[0]
-        # if phase.id > 0:
-        #     n_ineq *= 2
-
+    
         # Foot relative distance
         for (foot, Ks) in phase.allRelativeK[phase.moving[0]]:
-            if foot in phase.moving:
+            if foot in phase.stance:
                 n_ineq += Ks[0].shape[0]
 
         # Surfaces
@@ -207,7 +170,6 @@ class Planner:
                 if n_surface > 1:
                     n_eq += 1
         return n_eq
-        #  self.default_n_equality_constraints * self.pb.n_phases
 
     def convert_pb_to_LP(self, pb, convert_surfaces=False):
         """
@@ -240,13 +202,11 @@ class Planner:
             feet_phase = self._feet_last_moving_phase(phase.id)
 
             # inequalities
-            # i_start = cons.fixed_foot_com(self.pb, phase, G, h, i_start, js, feet_phase)
             i_start = cons.foot_relative_distance(self.pb, phase, G, h, i_start, js, feet_phase)
             i_start = cons.surface_inequality(phase, G, h, i_start, js[-1])
             i_start = cons.slack_positivity(phase, G, h, i_start, js[-1])
 
             # equalities
-            # i_start_eq = cons.com(self.pb, phase, C, d, i_start_eq, js, feet_phase)
             i_start_eq = cons.slack_equality(phase, C, d, i_start_eq, js[-1])
 
             js.append(js[-1] + self._phase_n_variables(phase))
@@ -302,13 +262,11 @@ class Planner:
         @param result vector of variables
         @return com positions, moving foot positions and all feet positions
         """
-        coms = []
         moving_foot_pos = []
         all_feet_pos = [[self.pb.p0[i]] for i in range(self.n_effectors)]
 
         j = 0
         for i, phase in enumerate(self.pb.phaseData):
-            coms.append(self.com_2(phase).dot(result[j:j + self._default_n_variables(phase)]))
             phase_moving_feet = []
             for foot in phase.moving:
                 phase_moving_feet.append(self.foot(phase, foot).dot(result[j:j + self._default_n_variables(phase)]))
@@ -326,53 +284,8 @@ class Planner:
         for foot in range(self.n_effectors):
             all_feet_pos[foot].pop(0)
 
-        return coms, moving_foot_pos, all_feet_pos
+        return moving_foot_pos, all_feet_pos
 
-    def com_cost(self, coms):
-        """
-        Compute a cost to keep the com close to a target com at each phase
-        @param coms list of target positions for the com
-        @return P matrix and q vector s.t. we minimize x' P x + q' x
-        """
-        n_variables = self._total_n_variables()
-        P = np.zeros((n_variables, n_variables))
-        q = np.zeros(n_variables)
-
-        j = 0
-        for phase in self.pb.phaseData:
-            A = np.zeros((2, n_variables))
-            A[:, j: j + self._default_n_variables(phase)] = self.com_xy(phase)
-            b = coms[phase.id][:2]
-
-            P += np.dot(A.T, A)
-            q += -np.dot(A.T, b).reshape(A.shape[1])
-
-            j += self._phase_n_variables(phase)
-
-        return P, q
-
-    def end_com_cost(self, com):
-        """
-        Compute a cost to keep the final CoM position close to a target one 
-        @param com Target final com position
-        @return P matrix and q vector s.t. we minimize x' P x + q' x
-        """
-        n_variables = self._total_n_variables()
-        P = np.zeros((n_variables, n_variables))
-        q = np.zeros(n_variables)
-
-        j = 0
-        for phase in self.pb.phaseData:
-            if phase.id == self.pb.n_phases - 1:
-                A = np.zeros((2, n_variables))
-                A[:, j: j + self._default_n_variables(phase)] = self.com_xy(phase)
-                b = com[:2]
-
-                P += np.dot(A.T, A)
-                q += -np.dot(A.T, b).reshape(A.shape[1])
-            j += self._phase_n_variables(phase)
-
-        return P, q
 
     def end_effectors_position_cost(self, effector_positions):
         """

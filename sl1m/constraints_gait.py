@@ -27,7 +27,7 @@ class Constraints:
         @param phase phase concerned
         @return the number of non slack variables in phase
         """
-        return 4 + 3 * len(phase.moving)
+        return 3 * len(phase.moving)
 
     def _expression_matrix(self, size, _default_n_variables, j):
         """
@@ -41,49 +41,6 @@ class Constraints:
         M[:, j:j + size] = np.identity(size)
         return M
 
-    def com_xy(self, phase):
-        """
-        Generate a selection matrix for the com x and y components
-        @param phase phase data
-        @return a (2, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(2, self._default_n_variables(phase), 0)
-
-    def com_1(self, phase):
-        """
-        Generate a selection matrix for the com_1
-        @param phase phase data
-        @return a (3, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(3, self._default_n_variables(phase), 0)
-
-    def com_2(self, phase):
-        """
-        Generate a selection matrix for the com_2
-        @param phase phase data
-        @return a (3, phase number of variables (without slacks)) matrix 
-        """
-        M = self._expression_matrix(3, self._default_n_variables(phase), 0)
-        M[2, 2] = 0
-        M[2, 3] = 1
-        return M
-
-    def com_1_z(self, phase):
-        """
-        Generate a selection matrix for the com_1 z component
-        @param phase phase data
-        @return a (1, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(1, self._default_n_variables(phase), 2)
-
-    def com_2_z(self, phase):
-        """
-        Generate a selection matrix for the com_2 z component
-        @param phase phase data
-        @return a (1, phase number of variables (without slacks)) matrix 
-        """
-        return self._expression_matrix(3, self._default_n_variables(phase), 3)
-
     def foot(self, phase, foot=None, id=None):
         """
         Generate a selection matrix for a given foot 
@@ -96,7 +53,7 @@ class Constraints:
             id = np.argmax(phase.moving == foot)
         elif id is None:
             print("Error in foot selection matrix: you must specify either foot or id")
-        return self._expression_matrix(3, self._default_n_variables(phase), 4 + 3 * id)
+        return self._expression_matrix(3, self._default_n_variables(phase), 3 * id)
 
     def foot_xy(self, phase, foot=None, id=None):
         """
@@ -110,89 +67,7 @@ class Constraints:
             id = np.argmax(phase.moving == foot)
         elif id is None:
             print("Error in foot selection matrix: you must specify either foot or id")
-        return self._expression_matrix(2, self._default_n_variables(phase), 4 + 3 * id)
-
-    def _fixed_foot_com_2_kinematic(self, pb, phase, G, h, i_start, js, feet_phase):
-        """
-        The COM 2 must belong to a reachable polytope above each stance foot of the phase
-        For each effector id , K_id (c2 - p_id) <= k_id
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param G           The inequality constraint matrix
-        @param h           The inequality constraint vector
-        @param i_start     Initial row to use
-        @param js          List of column corresponding to the start of each phase
-        @param feet_phase List of the feet las moving phase, -1 if they haven't moved
-        @return  i_start + the number of rows used by the constraint
-        """
-        i = i_start
-        j = js[-1]
-        for foot, (K, k) in enumerate(phase.K):
-            if foot in phase.stance:
-                l = k.shape[0]
-                G[i:i + l, j:j + self._default_n_variables(phase)] = K.dot(self.com_2(phase))
-                h[i:i + l] = k
-                if foot in phase.moving:
-                    G[i:i + l, j:j + self._default_n_variables(phase)] -= K.dot(self.foot(phase, foot))
-                elif feet_phase[foot] != -1:
-                    j_f = js[feet_phase[foot]]
-                    phase_f = pb.phaseData[feet_phase[foot]]
-                    G[i:i + l, j_f:j_f + self._default_n_variables(phase_f)] = - K.dot(self.foot(phase_f, foot))
-                else:
-                    foot_pose = pb.p0[foot]
-                    h[i:i + l] += K.dot(foot_pose)
-                i += l
-        return i
-
-    def _fixed_foot_com_1_kinematic(self, pb, phase, G, h, i_start, js, feet_phase):
-        """
-        The COM 1 must belong to a reachable polytope above each stance foot of the previous phase
-        For each effector id , K_id (c1- p_id(t-1)) <= k_id
-        This constraint should not be added at the first phase.
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param G           The inequality constraint matrix
-        @param h           The inequality constraint vector
-        @param i_start     Initial row to use
-        @param js          List of column corresponding to the start of each phase
-        @param feet_phase List of the feet las moving phase, -1 if they haven't moved
-        @return  i_start + the number of rows used by the constraint
-        """
-        i = i_start
-        j = js[-1]
-        for foot, (K, k) in enumerate(phase.K):
-            if foot in pb.phaseData[phase.id -1].stance:
-                l = k.shape[0]
-                G[i:i + l, j:j + self._default_n_variables(phase)] = K.dot(self.com_1(phase))
-                h[i:i + l] = k
-                if feet_phase[foot] != -1:
-                    j_f = js[feet_phase[foot]]
-                    phase_f = pb.phaseData[feet_phase[foot]]
-                    G[i:i + l, j_f:j_f + self._default_n_variables(phase_f)] -= K.dot(self.foot(phase_f, foot))
-                else:
-                    foot_pose = pb.p0[foot]
-                    h[i:i + l] += K.dot(foot_pose)
-                i += l
-        return i
-
-    def fixed_foot_com(self, pb, phase, G, h, i_start, js, feet_phase):
-        """
-        The COM must belong to a reachable polytope above each end-effector
-        For each effector id , K_id (c(t) - p_id(t-1)) <= k_id
-        This constraint should not be added at the first phase.
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param G           The inequality constraint matrix
-        @param h           The inequality constraint vector
-        @param i_start     Initial row to use
-        @param js          List of column corresponding to the start of each phase
-        @param feet_phase  List of the feet last moving phase, -1 if they haven't moved
-        @return i_start + the number of rows used by the constraint
-        """
-        i = i_start
-        if phase.id != 0:
-            i = self._fixed_foot_com_1_kinematic(pb, phase, G, h, i, js, feet_phase)
-        return self._fixed_foot_com_2_kinematic(pb, phase, G, h, i, js, feet_phase)
+        return self._expression_matrix(2, self._default_n_variables(phase), 3 * id)
 
     def foot_relative_distance(self, pb, phase, G, h, i_start, js, feet_phase):
         """
@@ -272,7 +147,7 @@ class Constraints:
                 G[i:i + l, j:j + self._default_n_variables(phase)] = S.dot(self.foot(phase, id=id))
                 h[i:i + l] = s
                 if phase.n_surfaces[id] > 1:
-                    G[i:i + l, j + j_alpha] = -np.ones(l)
+                    G[i:i + l, j + j_alpha] = -1000. * np.ones(l)
                     j_alpha += 1
                 print("Surface inequality constraints")
                 print("Id = ", id)
@@ -306,64 +181,3 @@ class Constraints:
         print("C = ", C)
         print("d = ", d)
         return i
-
-    def _com_weighted_equality(self, pb, phase, C, d, i_start, js, feet_phase):
-        """
-        The 2D position of the com should be the baricenter of the fixed feet locations
-        0 =  sum(fixed_foot i) WEIGHT * p_i_x_y - c_x_y
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param C           The equality constraint matrix
-        @param d           The equality constraint vector
-        @param i_start     Initial row to use
-        @param js          List of column corresponding to the start of each phase
-        @param feet_phase List of the feet las moving phase, -1 if they haven't moved
-        @return i_start + the number of rows used by the constraint
-        """
-        i = i_start
-        j = js[-1]
-        for foot in range(self.n_effectors):
-            if foot in phase.stance:
-                if feet_phase[foot] != -1:
-                    j_f = js[feet_phase[foot]]
-                    phase_f = pb.phaseData[feet_phase[foot]]
-                    C[i:i + 2, j_f:j_f + self._default_n_variables(phase_f)] = self.WEIGHTS[foot] * self.foot_xy(phase_f, foot)
-                else:
-                    foot_pose = pb.p0[foot]
-                    d[i:i + 2] -= self.WEIGHTS[foot] * foot_pose[:2]
-        C[i:i + 2, j:j + self._default_n_variables(phase)] = -self.com_xy(phase)
-        i += 2
-        return i
-
-    def _com_equality_init(self, pb, phase, C, d, i_start):
-        """
-        The initial com position is defined in the problem
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param C           The equality constraint matrix
-        @param d           The equality constraint vector
-        @param i_start     Initial row to use
-        @return i_start + the number of rows used by the constraint
-        """
-        i = i_start
-        C[i:i + 2, :self._default_n_variables(phase)] = self.com_xy(phase)
-        d[i:i + 2] = pb.c0[:2]
-        i += 2
-        return i
-
-    def com(self, pb, phase, C, d, i_start, js, feet_phase):
-        """
-        The com position is defined by the initial data or as the barycenter of fixed feet positions
-        @param pb          The problem specific data
-        @param phase       The phase specific data
-        @param C           The equality constraint matrix
-        @param d           The equality constraint vector
-        @param i_start     Initial row to use
-        @param js          List of column corresponding to the start of each phase
-        @param feet_phase List of the feet las moving phase, -1 if they haven't moved
-        @return i_start + the number of rows used by the constraint
-        """
-        if phase.id == 0 and pb.c0 != None:
-            return self._com_equality_init(pb, phase, C, d, i_start)
-        else:
-            return self._com_weighted_equality(pb, phase, C, d, i_start, js, feet_phase)

@@ -30,7 +30,7 @@ if __name__ == '__main__':
 
     solo = Solo()
     q_init = solo.referenceConfig.copy()
-    q_init[:2] = [1., 0.]
+    q_init[:2] = [0., 0.]
 
     initial_contacts = [np.array(q_init[:3]) +
                         solo.dict_ref_effector_from_root[limb_name] +
@@ -67,6 +67,6 @@ if __name__ == '__main__':
     ax = plot.draw_scene(scene)
     plot.plot_initial_contacts(initial_contacts, ax=ax)
     if(result.success):
-        plot.plot_planner_result(result.coms, result.moving_foot_pos, result.all_feet_pos, ax, True)
+        plot.plot_gait_planner_result(result.all_feet_pos, ax, True)
     else:
         plt.show()

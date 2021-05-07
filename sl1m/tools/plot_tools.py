@@ -191,3 +191,24 @@ def plot_planner_result(coms, moving_foot_pos, all_feet_pos, ax=None, show=True)
     if show:
         plt.draw()
         plt.show()
+
+def plot_gait_planner_result(all_feet_pos, ax=None, show=True):
+    """
+    Plot the feet positions and com positions
+    """
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+    ax.grid(False)
+    ax.view_init(elev=8.776933438381377, azim=-99.32358055821186)
+
+    for foot in range(len(all_feet_pos)):
+        plot_point_list(ax, all_feet_pos[foot], color=COLORS[foot])
+        px = [c[0] for c in all_feet_pos[foot]]
+        py = [c[1] for c in all_feet_pos[foot]]
+        pz = [c[2] for c in all_feet_pos[foot]]
+        ax.plot(px, py, pz, color=COLORS[foot])
+
+    if show:
+        plt.draw()
+        plt.show()

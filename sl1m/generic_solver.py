@@ -124,9 +124,9 @@ def solve_MIP_gait(pb, surfaces, costs={}, solver=Solvers.GUROBI):
 
     if result.success:
         alphas = planner.get_alphas(result.x)
-        coms, moving_foot_pos, all_feet_pos = planner.get_result(result.x)
+        moving_foot_pos, all_feet_pos = planner.get_result(result.x)
         surface_indices = planner.selected_surfaces(alphas)
-        return ProblemData(True, result.time, coms, moving_foot_pos, all_feet_pos, surface_indices)
+        return ProblemData(True, result.time, None, moving_foot_pos, all_feet_pos, surface_indices)
     return ProblemData(False, result.time)
 
 
