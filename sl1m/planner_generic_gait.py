@@ -170,17 +170,18 @@ class Planner:
         """
         n_ineq = 0
         # COM kinematic constraints
-        for _, (K, _) in enumerate(phase.K):
-            n_ineq += K.shape[0]
-        if phase.id > 0:
-            n_ineq *= 2
+        # for _, (K, _) in enumerate(phase.K):
+        #     n_ineq += K.shape[0]
+        # if phase.id > 0:
+        #     n_ineq *= 2
 
         # Foot relative distance
-        for (_, Ks) in phase.allRelativeK[phase.moving[0]]:
-            n_ineq += Ks[0].shape[0]
+        for (foot, Ks) in phase.allRelativeK[phase.moving[0]]:
+            if foot in phase.moving:
+                n_ineq += Ks[0].shape[0]
 
         # Surfaces
-        n_ineq += sum([sum([S[1].shape[0] for S in surfaces]) for surfaces in phase.S])
+        n_ineq += sum([sum([S[1].shape[0] for S in foot_surfaces]) for foot_surfaces in phase.S])
 
         # Slack positivity
         for n_surface in phase.n_surfaces:
@@ -200,7 +201,13 @@ class Planner:
         Counts the number of equality constraints
         @return the number of equality constraints of the problem
         """
-        return self.default_n_equality_constraints * self.pb.n_phases
+        n_eq = 0
+        for phase in self.pb.phaseData:
+            for n_surface in phase.n_surfaces:
+                if n_surface > 1:
+                    n_eq += 1
+        return n_eq
+        #  self.default_n_equality_constraints * self.pb.n_phases
 
     def convert_pb_to_LP(self, pb, convert_surfaces=False):
         """
@@ -240,8 +247,14 @@ class Planner:
 
             # equalities
             # i_start_eq = cons.com(self.pb, phase, C, d, i_start_eq, js, feet_phase)
+            i_start_eq = cons.slack_equality(phase, C, d, i_start_eq, js[-1])
 
             js.append(js[-1] + self._phase_n_variables(phase))
+
+        print(G)
+        print(h)    
+        print(C)
+        print(d)
 
         G, h = normalize([G, h])
         C, d = normalize([C, d])

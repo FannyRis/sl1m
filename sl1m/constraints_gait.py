@@ -20,7 +20,7 @@ class Constraints:
     def __init__(self, n_effectors):
         self.n_effectors = n_effectors
 
-        self.WEIGHTS = [1./float(n_effectors - 1)] * n_effectors
+        self.WEIGHTS = [1./float(n_effectors - 2)] * n_effectors
 
     def _default_n_variables(self, phase):
         """
@@ -168,7 +168,7 @@ class Constraints:
                 if feet_phase[foot] != -1:
                     j_f = js[feet_phase[foot]]
                     phase_f = pb.phaseData[feet_phase[foot]]
-                    G[i:i + l, j_f:j_f + self._default_n_variables(phase_f)] = - K.dot(self.foot(phase_f, foot))
+                    G[i:i + l, j_f:j_f + self._default_n_variables(phase_f)] -= K.dot(self.foot(phase_f, foot))
                 else:
                     foot_pose = pb.p0[foot]
                     h[i:i + l] += K.dot(foot_pose)
@@ -216,7 +216,7 @@ class Constraints:
                 G[i:i + l, j:j + self._default_n_variables(phase)] = -K.dot(self.foot(phase, id=0))
                 h[i:i + l] = k
                 if foot in phase.moving:
-                    G[i:i + l, j:j + self._default_n_variables(phase)] = K.dot(self.foot(phase, foot))
+                    G[i:i + l, j:j + self._default_n_variables(phase)] += K.dot(self.foot(phase, foot))
                 elif feet_phase[foot] != -1:
                     j_f = js[feet_phase[foot]]
                     phase_f = pb.phaseData[feet_phase[foot]]
@@ -224,6 +224,10 @@ class Constraints:
                 else:
                     foot_pose = pb.p0[foot]
                     h[i:i + l] -= K.dot(foot_pose)
+                print("Foot relative constraints")
+                print("Feet : ", foot)
+                print("Initial foot", phase.moving[0])
+                print(G[i:i + l, j:j + self._default_n_variables(phase)])
                 i += l
         return i
 
@@ -245,6 +249,8 @@ class Constraints:
                 G[i:i + n_surface, j_alpha:j_alpha + n_surface] = -np.identity(n_surface)
                 j_alpha += n_surface
                 i += n_surface
+        print("Slack positivity constraint")
+        print(G[i_start:i, j:j + self._default_n_variables(phase) + 4])
         return i
 
     def surface_inequality(self, phase, G, h, i_start, j):
@@ -268,7 +274,37 @@ class Constraints:
                 if phase.n_surfaces[id] > 1:
                     G[i:i + l, j + j_alpha] = -np.ones(l)
                     j_alpha += 1
+                print("Surface inequality constraints")
+                print("Id = ", id)
+                print("S = ", S)
+                print("s = ", s)
+                print(G[i:i + l, j:j + self._default_n_variables(phase)+4])
                 i += l
+        print(i-i_start)
+        return i
+
+    def slack_equality(self, phase, C, d, i_start, j):
+        """
+        The slack variables (alpha) sum should be equal to the number of surfaces -1 
+        Sl for each moving foot, sum(alpha_s) = n_surfaces - 1
+        @param phase       The phase specific data
+        @param C           The equality constraint matrix
+        @param d           The equality constraint vector
+        @param i_start     Initial row to use
+        @param j           Column corresponding to this phase variables
+        @return i_start + the number of rows used by the constraint
+        """
+        i = i_start
+        j_alpha = j + self._default_n_variables(phase)
+        for n_surface in phase.n_surfaces:
+            if n_surface > 1:
+                C[i, j_alpha:j_alpha + n_surface] = np.ones(n_surface)
+                d[i] = n_surface - 1
+                j_alpha += n_surface
+                i += 1
+        print("slack_equality constraints")
+        print("C = ", C)
+        print("d = ", d)
         return i
 
     def _com_weighted_equality(self, pb, phase, C, d, i_start, js, feet_phase):
@@ -291,8 +327,7 @@ class Constraints:
                 if feet_phase[foot] != -1:
                     j_f = js[feet_phase[foot]]
                     phase_f = pb.phaseData[feet_phase[foot]]
-                    C[i:i + 2, j_f:j_f + self._default_n_variables(phase_f)
-                    ] = self.WEIGHTS[foot] * self.foot_xy(phase_f, foot)
+                    C[i:i + 2, j_f:j_f + self._default_n_variables(phase_f)] = self.WEIGHTS[foot] * self.foot_xy(phase_f, foot)
                 else:
                     foot_pose = pb.p0[foot]
                     d[i:i + 2] -= self.WEIGHTS[foot] * foot_pose[:2]
